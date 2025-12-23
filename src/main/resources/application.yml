@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: rabbitmq-demo
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+
+    # Connection pool settings
+    connection-timeout: 15000
+
+    # Publisher confirms
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+    # Listener settings
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 10
+        retry:
+          enabled: false  # Custom retry policy kullanacağız
+
+  # H2 Database (DLQ mesajları için)
+  datasource:
+    url: jdbc:h2:mem:rabbitmq_dlq
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+# Custom retry intervals (saniye cinsinden)
+rabbitmq:
+  retry:
+    intervals: 2,5,30  # İlk retry: 2s, İkinci: 5s, Üçüncü: 30s
+    max-attempts: 3
+
+  dlq:
+    # DLQ'daki mesajlar için ayarlar
+    retention-hours: 24  # DLQ'da ne kadar tutulacak
+    alert-enabled: true  # Alert gönderilsin mi
+    auto-retry-enabled: false  # Otomatik yeniden deneme
+
+server:
+  port: 8080
+
+# Logging
+logging:
+  level:
+    com.example.rabbitmq: DEBUG
+    org.springframework.amqp: DEBUG
+
+# Swagger/OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    tags-sorter: alpha
+    operations-sorter: alpha
+    display-request-duration: true
+    doc-expansion: none
+    default-models-expand-depth: 1
+    default-model-expand-depth: 1
+  show-actuator: false
