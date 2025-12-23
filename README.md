@@ -420,13 +420,203 @@ Content: Hello RabbitMQ
 Sender: User1
 ```
 
+## Topic Exchange - Pattern Matching
+
+**Topic Exchange**, routing key üzerinde pattern matching (kalıp eşleştirme) yaparak mesajları ilgili queue'lara otomatik olarak yönlendirir.
+
+### Wildcard Karakterleri
+
+- **`*` (yıldız)** = Tam olarak **bir kelime** eşleşir
+- **`#` (hash)** = **Sıfır veya daha fazla kelime** eşleşir
+
+### Kullanılan Yapı
+
+```
+Topic Exchange: topic.exchange
+
+Queue ve Pattern'ler:
+├── log.queue              → Pattern: "log.#"           (log.*, log.*.*, vb)
+├── notification.queue     → Pattern: "notification.*"  (notification.email, notification.sms)
+├── analytics.queue        → Pattern: "*.analytics"     (user.analytics, order.analytics)
+└── order.queue            → Pattern: "order.*"         (order.created, order.updated, vb)
+```
+
+### Consumer'lar
+
+- [LogConsumer.java](src/main/java/com/example/rabbitmq/consumer/topic/LogConsumer.java) - Log mesajlarını işler
+- [NotificationConsumer.java](src/main/java/com/example/rabbitmq/consumer/topic/NotificationConsumer.java) - Bildirimleri işler
+- [AnalyticsConsumer.java](src/main/java/com/example/rabbitmq/consumer/topic/AnalyticsConsumer.java) - Analytics verilerini işler
+- [OrderConsumer.java](src/main/java/com/example/rabbitmq/consumer/topic/OrderConsumer.java) - Sipariş eventlerini işler
+
+### REST API Endpoints
+
+#### 1. Log Mesajı Gönder (Pattern: `log.#`)
+
+```bash
+# Basit log
+curl -X POST "http://localhost:8080/api/messages/topic/log?level=error&content=Database%20error&sender=System"
+
+# Kategorili log (log.warning.security)
+curl -X POST "http://localhost:8080/api/messages/topic/log?level=warning&category=security&content=Suspicious%20activity&sender=SecurityService"
+
+# Detaylı log (log.info.database.query)
+curl -X POST "http://localhost:8080/api/messages/topic/log?level=info&category=database&content=Slow%20query&sender=MonitoringService"
+```
+
+**Eşleşen Mesajlar:**
+- `log.error` ✅
+- `log.info.security` ✅
+- `log.warning.database.timeout` ✅
+
+#### 2. Notification Gönder (Pattern: `notification.*`)
+
+```bash
+# Email notification
+curl -X POST "http://localhost:8080/api/messages/topic/notification?type=email&content=Order%20shipped&sender=OrderService"
+
+# SMS notification
+curl -X POST "http://localhost:8080/api/messages/topic/notification?type=sms&content=Verification%20code&sender=AuthService"
+
+# Push notification
+curl -X POST "http://localhost:8080/api/messages/topic/notification?type=push&content=New%20message&sender=ChatService"
+```
+
+**Eşleşen Mesajlar:**
+- `notification.email` ✅
+- `notification.sms` ✅
+- `notification.push` ✅
+
+**Eşleşmeyen Mesajlar:**
+- `notification` ❌ (1 kelime, 2 bekleniyor)
+- `notification.email.urgent` ❌ (3 kelime, 2 bekleniyor)
+
+#### 3. Analytics Gönder (Pattern: `*.analytics`)
+
+```bash
+# User analytics
+curl -X POST "http://localhost:8080/api/messages/topic/analytics?source=user&content=User%20login&sender=UserService"
+
+# Order analytics
+curl -X POST "http://localhost:8080/api/messages/topic/analytics?source=order&content=Order%20completed&sender=OrderService"
+
+# Payment analytics
+curl -X POST "http://localhost:8080/api/messages/topic/analytics?source=payment&content=Payment%20success&sender=PaymentService"
+```
+
+**Eşleşen Mesajlar:**
+- `user.analytics` ✅
+- `order.analytics` ✅
+- `payment.analytics` ✅
+
+**Eşleşmeyen Mesajlar:**
+- `analytics` ❌ (1 kelime, 2 bekleniyor)
+- `user.order.analytics` ❌ (3 kelime, 2 bekleniyor)
+
+#### 4. Order Event Gönder (Pattern: `order.*`)
+
+```bash
+# Order created
+curl -X POST "http://localhost:8080/api/messages/topic/order?event=created&content=Order%20%2312345%20created&sender=OrderService"
+
+# Order updated
+curl -X POST "http://localhost:8080/api/messages/topic/order?event=updated&content=Order%20updated&sender=OrderService"
+
+# Order cancelled
+curl -X POST "http://localhost:8080/api/messages/topic/order?event=cancelled&content=Order%20cancelled&sender=OrderService"
+```
+
+**Eşleşen Mesajlar:**
+- `order.created` ✅
+- `order.updated` ✅
+- `order.cancelled` ✅
+- `order.completed` ✅
+
+#### 5. Tüm Pattern'leri Test Et
+
+```bash
+curl -X POST http://localhost:8080/api/messages/topic/test-all
+```
+
+Bu endpoint şu mesajları gönderir:
+- `log.error.database` → `log.queue`
+- `notification.email` → `notification.queue`
+- `user.analytics` → `analytics.queue`
+- `order.created` → `order.queue`
+
+### Topic Exchange'in Faydaları
+
+| Özellik | Direct Exchange | Topic Exchange |
+|---------|-----------------|----------------|
+| **Routing** | Tam eşleşme | Pattern matching |
+| **Scaling** | Hep birlikte | Bağımsız |
+| **Yeni Queue** | Kod değişikliği | Sadece config |
+| **Performance** | Consumer'da filter | RabbitMQ'da filter |
+| **Monitoring** | Toplam mesaj | Queue bazında |
+
+### Gerçek Hayat Örneği
+
+**E-ticaret Sipariş Oluşturulduğunda:**
+
+```
+sendOrderEvent("created", "Order #12345", "OrderService")
+         ↓ (routing key: "order.created")
+Topic Exchange
+         ↓ Pattern matching
+    ┌─────────────────────────────────┐
+    ↓                                  ↓
+order.queue                    notification.queue
+(order.* pattern)              (notification.* pattern)
+    ↓                                  ↓
+OrderService                   NotificationService
+(Siparişi kaydet)              (Email gönder)
+
+    ↓ (Aynı mesaj, 5 queue'ya gider)
+    ├─→ order.queue (Sipariş işleme)
+    ├─→ notification.queue (Email gönder)
+    ├─→ analytics.queue (Satış metriği)
+    ├─→ inventory.queue (Stok güncelle)
+    └─→ invoice.queue (Fatura oluştur)
+```
+
+### Kod Örneği
+
+```java
+// Producer - Mesaj gönder
+@Autowired
+private MessageProducer messageProducer;
+
+// Log gönder
+messageProducer.sendLogMessage("error", "database", "Connection timeout", "System");
+
+// Notification gönder
+messageProducer.sendNotification("email", "Order confirmed", "OrderService");
+
+// Analytics gönder
+messageProducer.sendAnalytics("user", "Login from mobile", "UserService");
+
+// Order event gönder
+messageProducer.sendOrderEvent("created", "Order #12345", "OrderService");
+```
+
+### Swagger UI ile Test
+
+Topic Exchange endpoint'leri Swagger UI'da görüntüleyin:
+
+```
+http://localhost:8080/swagger-ui/index.html
+```
+
+**Bölüm:** "Message Producer" → "Topic Exchange" endpoints
+
+---
+
 ## Use Case Senaryoları
 
 Şimdi aşağıdaki use case'leri ekleyebiliriz:
 
-1. **E-commerce Sipariş İşleme**
-2. **Email/SMS Notification Service**
-3. **Log Processing & Analytics**
+1. **E-commerce Sipariş İşleme** (Topic Exchange ile)
+2. **Email/SMS Notification Service** (Fanout Exchange ile)
+3. **Log Processing & Analytics** (Topic Exchange ile)
 4. **Image/Video Processing Pipeline**
 5. **Microservice Communication**
 

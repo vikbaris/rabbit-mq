@@ -22,6 +22,16 @@ public class RabbitMQConfig {
     public static final String DLQ_ROUTING_KEY = "example.dlq.routing.key";
 
     // ========== TOPIC EXCHANGE CONFIGURATION ==========
+/*
+    Direct Exchange:   routing key TAM EŞLEŞMELİ
+                   "order.created" ≠ "order.updated"
+
+Topic Exchange:    routing key PATTERN EŞLEŞİR
+                   "order.*" → order.created 
+                   "order.*" → order.updated 
+                   "order.*" → order.cancelled 
+*/
+
     // Topic Exchange - Pattern Matching için kullanılır
     public static final String TOPIC_EXCHANGE_NAME = "topic.exchange";
 
